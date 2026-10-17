@@ -1,0 +1,43 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;600;700&display=swap');
+
+:root {
+  color-scheme: light;
+  --canvas: #f5f6f3;
+  --surface: #ffffff;
+  --surface-raised: #ffffff;
+  --surface-soft: #eef1eb;
+  --surface-tint: #e5ece6;
+  --ink: #1c2622;
+  --ink-soft: #52605a;
+  --ink-muted: #89938d;
+  --line: #dce2dc;
+  --line-strong: #c7d0c9;
+  --accent: #176c57;
+  --accent-hover: #105541;
+  --accent-soft: #d9eee6;
+  --accent-ink: #105541;
+  --coral: #ba563f;
+  --coral-soft: #f8e8e2;
+  --amber: #9c6b17;
+  --amber-soft: #f6efd9;
+  --blue: #3b688c;
+  --blue-soft: #e4edf4;
+  --purple: #745a82;
+  --purple-soft: #eee8f1;
+  --success: #26754c;
+  --danger: #b4473a;
+  --shadow-1: 0 1px 2px rgb(25 41 32 / 5%), 0 2px 8px rgb(25 41 32 / 4%);
+  --shadow-2: 0 12px 36px rgb(25 41 32 / 16%);
+  --radius-sm: 4px;
+  --radius: 7px;
+  --radius-lg: 10px;
+  --topbar-height: 56px;
+  --sidebar-width: 222px;
+  --font: 'DM Sans', 'Noto Sans SC', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --mono: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
+  font-family: var(--font);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}

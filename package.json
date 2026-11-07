@@ -9,12 +9,11 @@
     "node": ">=18"
   },
   "scripts": {
-    "test": "node --test tests/",
+    "test": "node --test tests/*.test.mjs",
     "audit": "node tools/audit.mjs",
     "start": "node server/index.js --port 8787",
     "dev": "node server/index.js --port 8787 --static-only",
     "fuzz": "node tools/fuzz.mjs",
-    "bench": "node tools/bench.mjs",
     "icons": "python3 tools/gen-icons.py",
     "check": "npm run audit && npm test"
   },

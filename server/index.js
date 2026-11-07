@@ -69,26 +69,29 @@ export function createRippleServer(options = {}) {
     const stamp = new Date().toISOString();
     console.log(`[ripple ${stamp}] ${event} ${Object.keys(detail).length ? JSON.stringify(detail) : ''}`.trim());
   };
-  const hub = createHub({ log: (event, detail) => log(`hub:${event}`, detail), limits: options.limits });
   const store = options.dataDir ? createRoomStore(options.dataDir, { log: (e, d) => log(`store:${e}`, d) }) : null;
+  const hub = createHub({
+    log: (event, detail) => log(`hub:${event}`, detail),
+    limits: options.limits,
+    onOpsAccepted: store
+      ? (roomId, ops) => {
+          for (const op of ops) store.appendOp(roomId, op);
+        }
+      : null,
+  });
   const staticOnly = options.staticOnly === true;
   const startedAt = Date.now();
   const peers = new Map(); // socket -> {channel, ctx}
   let requests = 0;
 
   /**
-   * 落盘：hub 是纯逻辑，这里负责把「被接受的 op」和「新快照」写进 JSONL。
-   * 被接受的 op 恰好就是广播出去的那条 ops 消息，因此不需要额外接口。
+   * 落盘：hub 是纯逻辑，通过 onOpsAccepted 回调把每条被接受的 op 写进 JSONL；
+   * 这里再补充快照与地平线。单人房间也能持久化，不必等到有 peer 广播。
    */
   const originalHandle = hub.handle.bind(hub);
   const handleWithPersist = (ctx, msg) => {
     const deliveries = originalHandle(ctx, msg);
     if (!store) return deliveries;
-    for (const delivery of deliveries) {
-      if (delivery.to === '*' && delivery.msg?.t === 'ops') {
-        for (const op of delivery.msg.ops ?? []) store.appendOp(ctx.room, op);
-      }
-    }
     if (msg.t === 'snapshot') {
       const exported = hub.exportRoom(ctx.room);
       if (exported?.snapshot) store.appendSnapshot(ctx.room, exported.snapshot);
@@ -191,7 +194,6 @@ export function createRippleServer(options = {}) {
     socket.setNoDelay(true);
     const channel = createSocketChannel(socket, { maxPayload: options.maxMessageBytes ?? 512 * 1024 });
     const ctx = { client: null, room: null, alive: true };
-    peers.set(socket, { channel, ctx });
     log('ws:connect', { peer: `${socket.remoteAddress}:${socket.remotePort}` });
 
     const heartbeat = setInterval(() => {
@@ -203,6 +205,7 @@ export function createRippleServer(options = {}) {
       channel.ping();
     }, options.heartbeatMs ?? 30_000);
     heartbeat.unref?.();
+    peers.set(socket, { channel, ctx, heartbeat });
 
     channel.on('pong', () => {
       ctx.alive = true;
@@ -286,7 +289,8 @@ export function createRippleServer(options = {}) {
       return server.address();
     },
     async close() {
-      for (const [socket, { channel }] of peers) {
+      for (const [socket, { channel, heartbeat }] of peers) {
+        clearInterval(heartbeat);
         channel.close(1001, '服务器关闭');
         socket.destroy();
       }

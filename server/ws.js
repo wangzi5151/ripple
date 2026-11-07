@@ -297,6 +297,7 @@ export function createSocketChannel(socket, options = {}) {
         emit('close', { code: event.code ?? CLOSE_CODE.NO_STATUS, reason: event.reason, clean: true });
         closed = true;
         socket.end();
+        socket.destroy?.();
       }
     }
   });

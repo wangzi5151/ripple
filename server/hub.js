@@ -20,6 +20,10 @@ import {
   welcome,
 } from '../src/js/sync/protocol.js';
 
+function byteSize(value) {
+  return Buffer.byteLength(JSON.stringify(value));
+}
+
 export const DEFAULT_LIMITS = {
   maxOpsPerRoom: 20_000,
   maxPeersPerRoom: 32,
@@ -32,6 +36,7 @@ export function createHub(options = {}) {
   const limits = { ...DEFAULT_LIMITS, ...(options.limits ?? {}) };
   const rooms = new Map();
   const log = options.log ?? (() => {});
+  const onOpsAccepted = options.onOpsAccepted ?? null;
   let serverId = options.serverId ?? `srv-${Math.random().toString(36).slice(2, 8)}`;
   const counters = { messages: 0, opsAccepted: 0, opsRejected: 0, opsPruned: 0, snapshots: 0, joins: 0 };
 
@@ -95,7 +100,7 @@ export function createHub(options = {}) {
       const limit = (horizon ?? keepFrom)[op.n] ?? 0;
       if (op.q <= limit) {
         room.ops.delete(id);
-        room.bytes -= JSON.stringify(op).length;
+        room.bytes -= byteSize(op);
         pruned += 1;
       }
     }
@@ -116,7 +121,7 @@ export function createHub(options = {}) {
         continue;
       }
       if (room.ops.has(op.i)) continue; // 幂等：重复投递直接忽略
-      const size = JSON.stringify(op).length;
+      const size = byteSize(op);
       if (size > limits.maxOpBytes) {
         rejected.push({ id: op.i, reason: ERR.TOO_LARGE });
         counters.opsRejected += 1;
@@ -128,6 +133,9 @@ export function createHub(options = {}) {
       accepted.push(op);
     }
     counters.opsAccepted += accepted.length;
+    if (accepted.length > 0 && fromClient !== 'restore' && onOpsAccepted) {
+      onOpsAccepted(room.id, accepted);
+    }
     if (accepted.length > 0) {
       log('ops', { room: room.id, from: fromClient, accepted: accepted.length, rejected: rejected.length });
       if (room.ops.size > limits.maxOpsPerRoom) shrink(room);
@@ -152,7 +160,7 @@ export function createHub(options = {}) {
     const dropped = dropCandidates.slice(0, toDrop);
     for (const op of dropped) {
       room.ops.delete(op.i);
-      room.bytes -= JSON.stringify(op).length;
+      room.bytes -= byteSize(op);
       room.horizon[op.n] = Math.max(room.horizon[op.n] ?? 0, op.q);
     }
     counters.opsPruned += dropped.length;
@@ -263,12 +271,15 @@ export function createHub(options = {}) {
       case MSG.SNAPSHOT: {
         const room = rooms.get(ctx.room);
         if (!room) return out;
-        const size = JSON.stringify(msg.snapshot ?? null).length;
+        const nextSnapshot = msg.snapshot ?? null;
+        const size = byteSize(nextSnapshot);
         if (size > limits.maxSnapshotBytes) {
           out.push({ to: ctx.client, msg: errorMessage(ERR.TOO_LARGE, '快照超过大小限制') });
           return out;
         }
-        room.snapshot = msg.snapshot ?? null;
+        if (room.snapshot !== null) room.bytes -= byteSize(room.snapshot);
+        room.snapshot = nextSnapshot;
+        if (nextSnapshot !== null) room.bytes += size;
         room.horizon = { ...(msg.snapshot?.version ?? room.horizon) };
         counters.snapshots += 1;
         const pruned = prune(room, {}, { horizon: room.horizon });
@@ -346,9 +357,14 @@ export function createHub(options = {}) {
     /** 从磁盘恢复：ops 数组 + 可选快照。 */
     loadRoom(roomId, { ops = [], snapshot = null, horizon = null } = {}) {
       const room = getRoom(roomId, true);
+      room.ops.clear();
+      room.version = Object.create(null);
+      room.bytes = 0;
       room.snapshot = snapshot ?? null;
+      if (room.snapshot !== null) room.bytes += byteSize(room.snapshot);
       if (horizon) room.horizon = { ...horizon };
       acceptOps(room, ops, 'restore');
+      if (room.snapshot !== null) prune(room, {}, { horizon: room.horizon });
       return this.roomInfo(roomId);
     },
     exportRoom(roomId) {

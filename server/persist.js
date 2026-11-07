@@ -18,7 +18,6 @@ export function safeRoomId(roomId) {
 export function createRoomStore(dir, options = {}) {
   const log = options.log ?? (() => {});
   const queue = new Map();
-  let flushing = false;
   let closed = false;
 
   async function ensureDir() {
@@ -38,23 +37,32 @@ export function createRoomStore(dir, options = {}) {
     void flush();
   }
 
-  async function flush() {
-    if (flushing || closed) return;
+  let flushPromise = null;
+
+  function hasPending() {
+    return [...queue.values()].some((lines) => lines.length > 0);
+  }
+
+  function flush() {
+    if (closed) return Promise.resolve();
+    if (flushPromise) return flushPromise;
     const batch = [...queue.entries()].filter(([, lines]) => lines.length > 0);
-    if (batch.length === 0) return;
-    flushing = true;
-    try {
-      await ensureDir();
-      for (const [roomId, lines] of batch) {
-        queue.set(roomId, []);
-        await fsp.appendFile(filePath(roomId), `${lines.join('\n')}\n`, 'utf8');
+    if (batch.length === 0) return Promise.resolve();
+    flushPromise = (async () => {
+      try {
+        await ensureDir();
+        for (const [roomId, lines] of batch) {
+          queue.set(roomId, []);
+          await fsp.appendFile(filePath(roomId), `${lines.join('\n')}\n`, 'utf8');
+        }
+      } catch (error) {
+        log('persist-error', { error: String(error) });
+      } finally {
+        flushPromise = null;
+        if (!closed && hasPending()) void flush();
       }
-    } catch (error) {
-      log('persist-error', { error: String(error) });
-    } finally {
-      flushing = false;
-      if ([...queue.values()].some((lines) => lines.length > 0)) void flush();
-    }
+    })();
+    return flushPromise;
   }
 
   return {
@@ -69,11 +77,11 @@ export function createRoomStore(dir, options = {}) {
       enqueue(roomId, { t: 'horizon', horizon });
     },
     async flushAll() {
-      while ([...queue.values()].some((lines) => lines.length > 0)) {
+      while (hasPending() || flushPromise) {
         // eslint-disable-next-line no-await-in-loop
-        await flush();
+        if (flushPromise) await flushPromise;
+        else await flush();
       }
-      await flush();
     },
     async close() {
       await this.flushAll();
